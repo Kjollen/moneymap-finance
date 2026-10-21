@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import pb from '../lib/pocketbase';
-import { CreditCard, Plus, Trash2, X, Loader2 } from 'lucide-react';
+import { CreditCard, Plus, Trash2, X, Loader2, Edit2 } from 'lucide-react';
 
 interface Card {
   id: string;
@@ -36,6 +36,7 @@ export default function CardsPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Форма
@@ -76,28 +77,56 @@ export default function CardsPage() {
     setColor('#1e293b');
   };
 
+  const openEdit = (card: Card) => {
+    setEditingCard(card);
+    setName(card.name);
+    setType(card.type);
+    setBalance(card.balance.toString());
+    setCreditlimit(card.creditlimit.toString());
+    setCurrentdebit(card.currentdebit.toString());
+    setLastFourdigits(card.lastFourdigits);
+    setColor(card.color);
+    setShowAdd(true);
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !user) return;
 
     setSubmitting(true);
     try {
-      const record = await pb.collection('cards').create({
-        name: name.trim(),
-        type,
-        balance: parseFloat(balance) || 0,
-        creditlimit: parseFloat(creditlimit) || 0,
-        currentdebit: parseFloat(currentdebit) || 0,
-        lastFourdigits: lastFourdigits.trim(),
-        color,
-        userId: user.id,
-      });
-      setCards([...cards, record as any]);
+      if (editingCard) {
+        // Редактирование
+        const updated = await pb.collection('cards').update(editingCard.id, {
+          name: name.trim(),
+          type,
+          balance: parseFloat(balance) || 0,
+          creditlimit: parseFloat(creditlimit) || 0,
+          currentdebit: parseFloat(currentdebit) || 0,
+          lastFourdigits: lastFourdigits.trim(),
+          color,
+        });
+        setCards(cards.map(c => c.id === editingCard.id ? updated as any : c));
+      } else {
+        // Создание
+        const record = await pb.collection('cards').create({
+          name: name.trim(),
+          type,
+          balance: parseFloat(balance) || 0,
+          creditlimit: parseFloat(creditlimit) || 0,
+          currentdebit: parseFloat(currentdebit) || 0,
+          lastFourdigits: lastFourdigits.trim(),
+          color,
+          userId: user.id,
+        });
+        setCards([...cards, record as any]);
+      }
       resetForm();
+      setEditingCard(null);
       setShowAdd(false);
     } catch (err) {
-      console.error('Error creating card:', err);
-      alert('Ошибка при создании карты');
+      console.error('Error saving card:', err);
+      alert('Ошибка при сохранении карты');
     } finally {
       setSubmitting(false);
     }
@@ -138,7 +167,7 @@ export default function CardsPage() {
           Мои карты
         </h1>
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => { resetForm(); setEditingCard(null); setShowAdd(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl transition shadow-sm"
         >
           <Plus className="w-4 h-4" />
@@ -170,12 +199,20 @@ export default function CardsPage() {
                       {card.lastFourdigits && ` ••${card.lastFourdigits}`}
                     </p>
                   </div>
-                  <button
-                    onClick={() => handleDelete(card.id)}
-                    className="text-white/50 hover:text-white transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => openEdit(card)}
+                      className="text-white/50 hover:text-white transition"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(card.id)}
+                      className="text-white/50 hover:text-white transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-2xl font-bold mt-4">{formatMoney(card.balance)}</p>
                 
@@ -208,13 +245,15 @@ export default function CardsPage() {
         </div>
       )}
 
-      {/* Модальное окно добавления */}
+      {/* Модальное окно добавления/редактирования */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-800">Новая карта</h2>
-              <button onClick={() => { setShowAdd(false); resetForm(); }} className="text-gray-400 hover:text-gray-600">
+              <h2 className="text-xl font-bold text-gray-800">
+                {editingCard ? 'Редактировать карту' : 'Новая карта'}
+              </h2>
+              <button onClick={() => { setShowAdd(false); setEditingCard(null); resetForm(); }} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -324,7 +363,7 @@ export default function CardsPage() {
                 className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {submitting ? 'Добавление...' : 'Добавить карту'}
+                {submitting ? 'Сохранение...' : (editingCard ? 'Сохранить' : 'Добавить карту')}
               </button>
             </form>
           </div>

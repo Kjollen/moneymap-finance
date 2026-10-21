@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import pb from '../lib/pocketbase';
-import { CreditCard, Plus, Trash2, X, Loader2 } from 'lucide-react';
+import { CreditCard, Plus, Trash2, X, Loader2, Edit2 } from 'lucide-react';
 
 interface Credit {
   id: string;
@@ -18,6 +18,7 @@ export default function CreditsPage() {
   const [credits, setCredits] = useState<Credit[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingCredit, setEditingCredit] = useState<Credit | null>(null);
   const [name, setName] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [remainingAmount, setRemainingAmount] = useState('');
@@ -44,30 +45,54 @@ export default function CreditsPage() {
     }
   };
 
+  const resetForm = () => {
+    setName('');
+    setTotalAmount('');
+    setRemainingAmount('');
+    setInterestRate('');
+    setMonthlyPayment('');
+  };
+
+  const openEdit = (credit: Credit) => {
+    setEditingCredit(credit);
+    setName(credit.name);
+    setTotalAmount(credit.totalAmount.toString());
+    setRemainingAmount(credit.remainingAmount.toString());
+    setInterestRate(credit.interestRate.toString());
+    setMonthlyPayment(credit.monthlyPayment.toString());
+    setShowAdd(true);
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !totalAmount || !user) return;
 
     setSubmitting(true);
     try {
-      const record = await pb.collection('credits').create({
+      const data = {
         name: name.trim(),
         totalAmount: parseFloat(totalAmount),
         remainingAmount: remainingAmount ? parseFloat(remainingAmount) : parseFloat(totalAmount),
         interestRate: interestRate ? parseFloat(interestRate) : 0,
         monthlyPayment: monthlyPayment ? parseFloat(monthlyPayment) : 0,
-        userId: user.id,
-      });
-      setCredits([...credits, record as any]);
-      setName('');
-      setTotalAmount('');
-      setRemainingAmount('');
-      setInterestRate('');
-      setMonthlyPayment('');
+      };
+
+      if (editingCredit) {
+        const updated = await pb.collection('credits').update(editingCredit.id, data);
+        setCredits(credits.map(c => c.id === editingCredit.id ? updated as any : c));
+      } else {
+        const record = await pb.collection('credits').create({
+          ...data,
+          userId: user.id,
+        });
+        setCredits([...credits, record as any]);
+      }
+      resetForm();
+      setEditingCredit(null);
       setShowAdd(false);
     } catch (err) {
-      console.error('Error creating credit:', err);
-      alert('Ошибка при создании кредита');
+      console.error('Error saving credit:', err);
+      alert('Ошибка при сохранении кредита');
     } finally {
       setSubmitting(false);
     }
@@ -112,7 +137,7 @@ export default function CreditsPage() {
           Мои кредиты
         </h1>
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => { resetForm(); setEditingCredit(null); setShowAdd(true); }}
           className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl transition shadow-sm"
         >
           <Plus className="w-4 h-4" />
@@ -134,12 +159,20 @@ export default function CreditsPage() {
               <div key={credit.id} className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-800">{credit.name}</h3>
-                  <button
-                    onClick={() => handleDelete(credit.id)}
-                    className="text-gray-400 hover:text-red-500 transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => openEdit(credit)}
+                      className="text-gray-400 hover:text-blue-500 transition"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(credit.id)}
+                      className="text-gray-400 hover:text-red-500 transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -180,13 +213,15 @@ export default function CreditsPage() {
         </div>
       )}
 
-      {/* Модальное окно добавления */}
+      {/* Модальное окно добавления/редактирования */}
       {showAdd && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-800">Новый кредит</h2>
-              <button onClick={() => setShowAdd(false)} className="text-gray-400 hover:text-gray-600">
+              <h2 className="text-xl font-bold text-gray-800">
+                {editingCredit ? 'Редактировать кредит' : 'Новый кредит'}
+              </h2>
+              <button onClick={() => { setShowAdd(false); setEditingCredit(null); resetForm(); }} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -253,7 +288,7 @@ export default function CreditsPage() {
                 className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {submitting ? 'Добавление...' : 'Добавить кредит'}
+                {submitting ? 'Сохранение...' : (editingCredit ? 'Сохранить' : 'Добавить кредит')}
               </button>
             </form>
           </div>

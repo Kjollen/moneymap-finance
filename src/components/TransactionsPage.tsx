@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import pb from '../lib/pocketbase';
-import { ArrowUpDown, Plus, Trash2, X, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
+import { ArrowUpDown, Plus, Trash2, X, ArrowUpRight, ArrowDownRight, Loader2, ChevronDown } from 'lucide-react';
 
 interface Card {
   id: string;
   name: string;
   balance: number;
   type: string;
+  color: string;
 }
 
 interface Credit {
@@ -50,6 +51,8 @@ export default function TransactionsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showCardPicker, setShowCardPicker] = useState(false);
 
   // Форма
   const [type, setType] = useState<'income' | 'expense'>('expense');
@@ -65,7 +68,6 @@ export default function TransactionsPage() {
   }, [user]);
 
   useEffect(() => {
-    // Фильтруем категории по типу при смене типа
     const filtered = allCategories.filter(c => c.type === type);
     setCategories(filtered);
     setCategoryId('');
@@ -91,7 +93,7 @@ export default function TransactionsPage() {
       setAllCategories(categoriesRes as any);
       setCategories((categoriesRes as any).filter((c: Category) => c.type === type));
     } catch (err) {
-      console.error('Error loading ', err);
+      console.error('Error loading data:', err);
     } finally {
       setLoading(false);
     }
@@ -103,7 +105,6 @@ export default function TransactionsPage() {
 
     setSubmitting(true);
     try {
-      // Создаём транзакцию
       const record = await pb.collection('transactions').create({
         amount: parseFloat(amount),
         type,
@@ -115,7 +116,6 @@ export default function TransactionsPage() {
         userId: user.id,
       });
 
-      // Обновляем баланс карты
       if (cardId) {
         const card = cards.find(c => c.id === cardId);
         if (card) {
@@ -126,7 +126,6 @@ export default function TransactionsPage() {
         }
       }
 
-      // Обновляем данные
       setTransactions([record as any, ...transactions]);
       setAmount('');
       setDescription('');
@@ -134,8 +133,6 @@ export default function TransactionsPage() {
       setCardId('');
       setField('');
       setShowAdd(false);
-
-      // Перезагружаем для актуальности
       await loadData();
     } catch (err) {
       console.error('Error creating transaction:', err);
@@ -147,11 +144,8 @@ export default function TransactionsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Удалить эту операцию?')) return;
-
     try {
       const transaction = transactions.find(t => t.id === id);
-      
-      // Откатываем баланс карты
       if (transaction?.cardId) {
         const card = cards.find(c => c.id === transaction.cardId);
         if (card) {
@@ -161,12 +155,8 @@ export default function TransactionsPage() {
           await pb.collection('cards').update(transaction.cardId, { balance: newBalance });
         }
       }
-
-      // Удаляем транзакцию
       await pb.collection('transactions').delete(id);
       setTransactions(transactions.filter(t => t.id !== id));
-
-      // Перезагружаем данные
       await loadData();
     } catch (err) {
       console.error('Error deleting transaction:', err);
@@ -183,19 +173,17 @@ export default function TransactionsPage() {
   };
 
   const getCategoryInfo = (transaction: Transaction): Category | undefined => {
-    // Сначала пробуем из expand
-    if (transaction.expand?.categoryId) {
-      return transaction.expand.categoryId;
-    }
-    // Иначе ищем в allCategories
+    if (transaction.expand?.categoryId) return transaction.expand.categoryId;
     return allCategories.find(c => c.id === transaction.categoryId);
   };
+
+  const selectedCategory = categories.find(c => c.id === categoryId);
+  const selectedCard = cards.find(c => c.id === cardId);
 
   const filteredTransactions = [...transactions]
     .filter(t => filter === 'all' || t.type === filter)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  // Группировка по дате
   const grouped: { [key: string]: Transaction[] } = {};
   filteredTransactions.forEach(t => {
     const dateKey = t.date;
@@ -356,35 +344,44 @@ export default function TransactionsPage() {
                 />
               </div>
 
+              {/* Кастомный выбор категории */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
-                <select
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <button
+                  type="button"
+                  onClick={() => setShowCategoryPicker(true)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-50 transition"
                 >
-                  <option value="">Выберите категорию</option>
-                  {categories.map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
-                  ))}
-                </select>
+                  {selectedCategory ? (
+                    <span className="flex items-center gap-2">
+                      <span>{selectedCategory.icon}</span>
+                      <span>{selectedCategory.name}</span>
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">Выберите категорию</span>
+                  )}
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                </button>
                 {categories.length === 0 && (
                   <p className="text-xs text-gray-400 mt-1">Сначала добавьте категории</p>
                 )}
               </div>
 
+              {/* Кастомный выбор карты */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Карта</label>
-                <select
-                  value={cardId}
-                  onChange={(e) => setCardId(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <button
+                  type="button"
+                  onClick={() => setShowCardPicker(true)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-left flex items-center justify-between hover:bg-gray-50 transition"
                 >
-                  <option value="">Без карты</option>
-                  {cards.map(card => (
-                    <option key={card.id} value={card.id}>{card.name}</option>
-                  ))}
-                </select>
+                  {selectedCard ? (
+                    <span>{selectedCard.name}</span>
+                  ) : (
+                    <span className="text-gray-400">Без карты</span>
+                  )}
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                </button>
               </div>
 
               <div>
@@ -429,6 +426,87 @@ export default function TransactionsPage() {
                 {submitting ? 'Добавление...' : 'Добавить операцию'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Picker категорий */}
+      {showCategoryPicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[70vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <h3 className="font-bold text-gray-800">Выберите категорию</h3>
+              <button onClick={() => setShowCategoryPicker(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-2">
+              <button
+                type="button"
+                onClick={() => { setCategoryId(''); setShowCategoryPicker(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
+                  !categoryId ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                }`}
+              >
+                <span className="text-lg">💰</span>
+                <span className="text-sm font-medium">Без категории</span>
+              </button>
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => { setCategoryId(cat.id); setShowCategoryPicker(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
+                    categoryId === cat.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <span className="text-lg">{cat.icon}</span>
+                  <span className="text-sm font-medium">{cat.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Picker карт */}
+      {showCardPicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[70vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <h3 className="font-bold text-gray-800">Выберите карту</h3>
+              <button onClick={() => setShowCardPicker(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-2">
+              <button
+                type="button"
+                onClick={() => { setCardId(''); setShowCardPicker(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
+                  !cardId ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                }`}
+              >
+                <span className="text-lg">💳</span>
+                <span className="text-sm font-medium">Без карты</span>
+              </button>
+              {cards.map(card => (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => { setCardId(card.id); setShowCardPicker(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
+                    cardId === card.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="w-8 h-5 rounded-sm" style={{ backgroundColor: card.color || '#1e293b' }} />
+                  <div>
+                    <span className="text-sm font-medium">{card.name}</span>
+                    <p className="text-xs text-gray-400">{formatMoney(card.balance)}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

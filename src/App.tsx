@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
@@ -6,12 +6,14 @@ import CardsPage from './components/CardsPage';
 import CreditsPage from './components/CreditsPage';
 import CategoriesPage from './components/CategoriesPage';
 import TransactionsPage from './components/TransactionsPage';
+import BudgetPage from './components/BudgetPage';
+import AnalyticsPage from './components/AnalyticsPage';
 import {
   LayoutDashboard, CreditCard, Tag, ArrowUpDown,
-  LogOut, Wallet, Menu, X
+  LogOut, Wallet, Menu, X, Target, BarChart3
 } from 'lucide-react';
 
-type Page = 'dashboard' | 'cards' | 'credits' | 'categories' | 'transactions';
+type Page = 'dashboard' | 'cards' | 'credits' | 'categories' | 'transactions' | 'budget' | 'analytics';
 
 const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Главная', icon: <LayoutDashboard className="w-5 h-5" /> },
@@ -19,12 +21,43 @@ const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: 'credits', label: 'Кредиты', icon: <CreditCard className="w-5 h-5" /> },
   { id: 'categories', label: 'Категории', icon: <Tag className="w-5 h-5" /> },
   { id: 'transactions', label: 'Операции', icon: <ArrowUpDown className="w-5 h-5" /> },
+  { id: 'budget', label: 'Бюджет', icon: <Target className="w-5 h-5" /> },
+  { id: 'analytics', label: 'Аналитика', icon: <BarChart3 className="w-5 h-5" /> },
 ];
 
 function AppContent() {
   const { user, logout, isLoading } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const touchCurrentX = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchCurrentX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchCurrentX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    if (touchStartX.current !== null && touchCurrentX.current !== null) {
+      const diff = touchCurrentX.current - touchStartX.current;
+      
+      // Свайп вправо — открыть меню (только если меню закрыто и свайп от левого края)
+      if (diff > 80 && touchStartX.current < 50 && !sidebarOpen) {
+        setSidebarOpen(true);
+      }
+      
+      // Свайп влево — закрыть меню
+      if (diff < -80 && sidebarOpen) {
+        setSidebarOpen(false);
+      }
+    }
+    touchStartX.current = null;
+    touchCurrentX.current = null;
+  };
 
   if (isLoading) {
     return (
@@ -45,12 +78,19 @@ function AppContent() {
       case 'credits': return <CreditsPage />;
       case 'categories': return <CategoriesPage />;
       case 'transactions': return <TransactionsPage />;
+      case 'budget': return <BudgetPage />;
+      case 'analytics': return <AnalyticsPage />;
       default: return <Dashboard />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div
+      className="min-h-screen bg-gray-50 flex"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       {/* Мобильный оверлей */}
       {sidebarOpen && (
         <div
@@ -80,7 +120,7 @@ function AppContent() {
         </div>
 
         {/* Навигация */}
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {navItems.map(item => (
             <button
               key={item.id}
