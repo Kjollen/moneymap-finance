@@ -35,8 +35,9 @@ interface Transaction {
   date: string;
   description: string;
   categoryId: string;
-  cardId: string;
-  creditId: string;
+  expand?: {
+    categoryId?: Category;
+  };
 }
 
 export default function Dashboard() {
@@ -58,15 +59,19 @@ export default function Dashboard() {
       const [cardsRes, creditsRes, categoriesRes, transactionsRes] = await Promise.all([
         pb.collection('cards').getFullList({ filter: `userId = "${user.id}"` }),
         pb.collection('credits').getFullList({ filter: `userId = "${user.id}"` }),
-        pb.collection('categories').getFullList({ filter: `userId = "${user.id}"` }),
-        pb.collection('transactions').getFullList({ filter: `userId = "${user.id}"`, sort: '-date' }),
+        pb.collection('categories').getFullList({}),
+        pb.collection('transactions').getFullList({ 
+          filter: `userId = "${user.id}"`, 
+          sort: '-date',
+          expand: 'categoryId',
+        }),
       ]);
       setCards(cardsRes as any);
       setCredits(creditsRes as any);
       setCategories(categoriesRes as any);
       setTransactions(transactionsRes as any);
     } catch (err) {
-      console.error('Error loading data:', err);
+      console.error('Error loading ', err);
     } finally {
       setLoading(false);
     }
@@ -99,8 +104,11 @@ export default function Dashboard() {
     }).format(amount);
   };
 
-  const getCategoryInfo = (categoryId: string) => {
-    return categories.find(c => c.id === categoryId);
+  const getCategoryInfo = (transaction: Transaction): Category | undefined => {
+    if (transaction.expand?.categoryId) {
+      return transaction.expand.categoryId;
+    }
+    return categories.find(c => c.id === transaction.categoryId);
   };
 
   return (
@@ -178,7 +186,7 @@ export default function Dashboard() {
             </div>
           ) : (
             recentTransactions.map(transaction => {
-              const category = getCategoryInfo(transaction.categoryId);
+              const category = getCategoryInfo(transaction);
               return (
                 <div key={transaction.id} className="p-4 flex items-center gap-4 hover:bg-gray-50 transition">
                   <div

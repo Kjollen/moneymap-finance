@@ -7,6 +7,7 @@ interface Card {
   id: string;
   name: string;
   balance: number;
+  type: string;
 }
 
 interface Credit {
@@ -31,7 +32,11 @@ interface Transaction {
   description: string;
   categoryId: string;
   cardId: string;
-  creditId: string;
+  field: string;
+  userId: string;
+  expand?: {
+    categoryId?: Category;
+  };
 }
 
 export default function TransactionsPage() {
@@ -40,6 +45,7 @@ export default function TransactionsPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [credits, setCredits] = useState<Credit[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -51,7 +57,7 @@ export default function TransactionsPage() {
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [cardId, setCardId] = useState('');
-  const [creditId, setCreditId] = useState('');
+  const [field, setField] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
@@ -59,11 +65,11 @@ export default function TransactionsPage() {
   }, [user]);
 
   useEffect(() => {
-    // Фильтруем категории по типу
-    if (user) {
-      loadCategories();
-    }
-  }, [type, user]);
+    // Фильтруем категории по типу при смене типа
+    const filtered = allCategories.filter(c => c.type === type);
+    setCategories(filtered);
+    setCategoryId('');
+  }, [type, allCategories]);
 
   const loadData = async () => {
     if (!user) return;
@@ -73,31 +79,21 @@ export default function TransactionsPage() {
         pb.collection('transactions').getFullList({
           filter: `userId = "${user.id}"`,
           sort: '-date',
+          expand: 'categoryId',
         }),
         pb.collection('cards').getFullList({ filter: `userId = "${user.id}"` }),
         pb.collection('credits').getFullList({ filter: `userId = "${user.id}"` }),
-        pb.collection('categories').getFullList({ filter: `userId = "${user.id}"` }),
+        pb.collection('categories').getFullList({}),
       ]);
       setTransactions(transactionsRes as any);
       setCards(cardsRes as any);
       setCredits(creditsRes as any);
-      setCategories(categoriesRes as any);
+      setAllCategories(categoriesRes as any);
+      setCategories((categoriesRes as any).filter((c: Category) => c.type === type));
     } catch (err) {
-      console.error('Error loading data:', err);
+      console.error('Error loading ', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadCategories = async () => {
-    if (!user) return;
-    try {
-      const records = await pb.collection('categories').getFullList({
-        filter: `userId = "${user.id}" && type = "${type}"`,
-      });
-      setCategories(records as any);
-    } catch (err) {
-      console.error('Error loading categories:', err);
     }
   };
 
@@ -107,19 +103,19 @@ export default function TransactionsPage() {
 
     setSubmitting(true);
     try {
-      // 1. Создаём транзакцию
+      // Создаём транзакцию
       const record = await pb.collection('transactions').create({
         amount: parseFloat(amount),
         type,
         date,
         description: description.trim(),
-        categoryId,
-        cardId,
-        creditId,
+        categoryId: categoryId || null,
+        cardId: cardId || null,
+        field: field.trim(),
         userId: user.id,
       });
 
-      // 2. Обновляем баланс карты
+      // Обновляем баланс карты
       if (cardId) {
         const card = cards.find(c => c.id === cardId);
         if (card) {
@@ -130,25 +126,16 @@ export default function TransactionsPage() {
         }
       }
 
-      // 3. Обновляем остаток кредита (только для расходов)
-      if (creditId && type === 'expense') {
-        const credit = credits.find(c => c.id === creditId);
-        if (credit) {
-          const newRemaining = Math.max(0, credit.remainingAmount - parseFloat(amount));
-          await pb.collection('credits').update(creditId, { remainingAmount: newRemaining });
-        }
-      }
-
-      // Обновляем UI
+      // Обновляем данные
       setTransactions([record as any, ...transactions]);
       setAmount('');
       setDescription('');
       setCategoryId('');
       setCardId('');
-      setCreditId('');
+      setField('');
       setShowAdd(false);
 
-      // Перезагружаем данные для актуальности
+      // Перезагружаем для актуальности
       await loadData();
     } catch (err) {
       console.error('Error creating transaction:', err);
@@ -191,12 +178,17 @@ export default function TransactionsPage() {
     return new Intl.NumberFormat('ru-RU', {
       style: 'currency',
       currency: 'RUB',
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
     }).format(amount);
   };
 
-  const getCategoryInfo = (catId: string) => {
-    return categories.find(c => c.id === catId);
+  const getCategoryInfo = (transaction: Transaction): Category | undefined => {
+    // Сначала пробуем из expand
+    if (transaction.expand?.categoryId) {
+      return transaction.expand.categoryId;
+    }
+    // Иначе ищем в allCategories
+    return allCategories.find(c => c.id === transaction.categoryId);
   };
 
   const filteredTransactions = [...transactions]
@@ -272,7 +264,7 @@ export default function TransactionsPage() {
               </h3>
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-50 overflow-hidden">
                 {items.map(transaction => {
-                  const category = getCategoryInfo(transaction.categoryId);
+                  const category = getCategoryInfo(transaction);
                   return (
                     <div key={transaction.id} className="p-4 flex items-center gap-4 hover:bg-gray-50 transition group">
                       <div
@@ -285,9 +277,10 @@ export default function TransactionsPage() {
                         <p className="font-medium text-gray-800 truncate">
                           {transaction.description || category?.name || 'Операция'}
                         </p>
-                        {category && (
-                          <p className="text-xs text-gray-400">{category.name}</p>
-                        )}
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                          {category && <span>{category.name}</span>}
+                          {transaction.field && <span>• {transaction.field}</span>}
+                        </div>
                       </div>
                       <div className={`flex items-center gap-1 font-semibold shrink-0 ${
                         transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
@@ -329,7 +322,7 @@ export default function TransactionsPage() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => { setType('expense'); setCategoryId(''); }}
+                  onClick={() => setType('expense')}
                   className={`flex-1 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 ${
                     type === 'expense' ? 'bg-red-100 text-red-700 border-2 border-red-300' : 'bg-gray-100 text-gray-600'
                   }`}
@@ -339,7 +332,7 @@ export default function TransactionsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setType('income'); setCategoryId(''); }}
+                  onClick={() => setType('income')}
                   className={`flex-1 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 ${
                     type === 'income' ? 'bg-green-100 text-green-700 border-2 border-green-300' : 'bg-gray-100 text-gray-600'
                   }`}
@@ -394,21 +387,16 @@ export default function TransactionsPage() {
                 </select>
               </div>
 
-              {type === 'expense' && credits.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Кредит (оплата)</label>
-                  <select
-                    value={creditId}
-                    onChange={(e) => setCreditId(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Без кредита</option>
-                    {credits.map(credit => (
-                      <option key={credit.id} value={credit.id}>{credit.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Доп. поле</label>
+                <input
+                  type="text"
+                  value={field}
+                  onChange={(e) => setField(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Необязательно"
+                />
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Описание</label>

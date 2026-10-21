@@ -6,13 +6,12 @@ import { Tag, Plus, Trash2, X, Loader2 } from 'lucide-react';
 interface Category {
   id: string;
   name: string;
+  type: 'income' | 'expense';
   icon: string;
   color: string;
-  type: 'income' | 'expense';
-  userId: string;
 }
 
-const DEFAULT_ICONS = ['🛒', '🏠', '🚗', '💊', '🎮', '📱', '👕', '🍕', '⛽', '💡', '📚', '✈️', '🎁', '💰', '💼', '🏥', '🎬', '🐕', '🏋️', '☕'];
+const DEFAULT_ICONS = ['🛒', '🏠', '🚗', '💊', '🎮', '📱', '👕', '🍕', '⛽', '💡', '📚', '✈️', '🎁', '💰', '💼', '🏥', '🎬', '🐕', '🏋️', '☕', '🍔', '🚌', '💇', '🎓'];
 const DEFAULT_COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
 
 export default function CategoriesPage() {
@@ -29,15 +28,13 @@ export default function CategoriesPage() {
 
   useEffect(() => {
     loadCategories();
-  }, [user]);
+  }, []);
 
   const loadCategories = async () => {
-    if (!user) return;
     setLoading(true);
     try {
-      const records = await pb.collection('categories').getFullList({
-        filter: `userId = "${user.id}"`,
-      });
+      // Категории общие (без userId)
+      const records = await pb.collection('categories').getFullList({});
       setCategories(records as any);
     } catch (err) {
       console.error('Error loading categories:', err);
@@ -48,7 +45,7 @@ export default function CategoriesPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !user) return;
+    if (!name.trim()) return;
 
     setSubmitting(true);
     try {
@@ -57,7 +54,6 @@ export default function CategoriesPage() {
         icon,
         color,
         type,
-        userId: user.id,
       });
       setCategories([...categories, record as any]);
       setName('');

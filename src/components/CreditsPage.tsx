@@ -8,6 +8,7 @@ interface Credit {
   name: string;
   totalAmount: number;
   remainingAmount: number;
+  interestRate: number;
   monthlyPayment: number;
   userId: string;
 }
@@ -20,6 +21,7 @@ export default function CreditsPage() {
   const [name, setName] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [remainingAmount, setRemainingAmount] = useState('');
+  const [interestRate, setInterestRate] = useState('');
   const [monthlyPayment, setMonthlyPayment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -52,6 +54,7 @@ export default function CreditsPage() {
         name: name.trim(),
         totalAmount: parseFloat(totalAmount),
         remainingAmount: remainingAmount ? parseFloat(remainingAmount) : parseFloat(totalAmount),
+        interestRate: interestRate ? parseFloat(interestRate) : 0,
         monthlyPayment: monthlyPayment ? parseFloat(monthlyPayment) : 0,
         userId: user.id,
       });
@@ -59,6 +62,7 @@ export default function CreditsPage() {
       setName('');
       setTotalAmount('');
       setRemainingAmount('');
+      setInterestRate('');
       setMonthlyPayment('');
       setShowAdd(false);
     } catch (err) {
@@ -84,7 +88,7 @@ export default function CreditsPage() {
     return new Intl.NumberFormat('ru-RU', {
       style: 'currency',
       currency: 'RUB',
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
     }).format(amount);
   };
 
@@ -146,6 +150,10 @@ export default function CreditsPage() {
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">Сумма кредита</span>
                     <span className="text-gray-700">{formatMoney(credit.totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Ставка</span>
+                    <span className="text-gray-700">{credit.interestRate}%</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">Ежемесячный платёж</span>
@@ -214,6 +222,17 @@ export default function CreditsPage() {
                   onChange={(e) => setRemainingAmount(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
                   placeholder="Оставьте пустым = вся сумма"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Процентная ставка (%)</label>
+                <input
+                  type="number"
+                  value={interestRate}
+                  onChange={(e) => setInterestRate(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="12.5"
                   step="0.01"
                 />
               </div>
