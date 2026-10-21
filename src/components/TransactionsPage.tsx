@@ -177,7 +177,7 @@ export default function TransactionsPage() {
     return allCategories.find(c => c.id === transaction.categoryId);
   };
 
-  const selectedCategory = categories.find(c => c.id === categoryId);
+  const selectedCategory = allCategories.find(c => c.id === categoryId);
   const selectedCard = cards.find(c => c.id === cardId);
 
   const filteredTransactions = [...transactions]
@@ -451,19 +451,86 @@ export default function TransactionsPage() {
                 <span className="text-lg">💰</span>
                 <span className="text-sm font-medium">Без категории</span>
               </button>
-              {categories.map(cat => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => { setCategoryId(cat.id); setShowCategoryPicker(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
-                    categoryId === cat.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
-                  }`}
-                >
-                  <span className="text-lg">{cat.icon}</span>
-                  <span className="text-sm font-medium">{cat.name}</span>
-                </button>
-              ))}
+              
+              {/* Все категории, сгруппированные по типу */}
+              {(() => {
+                const expenseCats = allCategories.filter(c => c.type === 'expense');
+                const incomeCats = allCategories.filter(c => c.type === 'income');
+                const otherCats = allCategories.filter(c => c.type !== 'expense' && c.type !== 'income');
+                
+                return (
+                  <>
+                    {expenseCats.length > 0 && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase mt-2">
+                          Расходы
+                        </div>
+                        {expenseCats.map(cat => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => { setCategoryId(cat.id); setShowCategoryPicker(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
+                              categoryId === cat.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <span className="text-lg">{cat.icon}</span>
+                            <span className="text-sm font-medium">{cat.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    
+                    {incomeCats.length > 0 && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase mt-2">
+                          Доходы
+                        </div>
+                        {incomeCats.map(cat => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => { setCategoryId(cat.id); setShowCategoryPicker(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
+                              categoryId === cat.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <span className="text-lg">{cat.icon}</span>
+                            <span className="text-sm font-medium">{cat.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    
+                    {otherCats.length > 0 && (
+                      <>
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase mt-2">
+                          Другие
+                        </div>
+                        {otherCats.map(cat => (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            onClick={() => { setCategoryId(cat.id); setShowCategoryPicker(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition ${
+                              categoryId === cat.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <span className="text-lg">{cat.icon}</span>
+                            <span className="text-sm font-medium">{cat.name}</span>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    
+                    {allCategories.length === 0 && (
+                      <div className="px-4 py-8 text-center text-gray-400 text-sm">
+                        Нет категорий. Добавьте их в разделе "Категории"
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
