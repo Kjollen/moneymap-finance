@@ -1,17 +1,48 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Transaction, Card, Credit, Category,
-  getItems, addItem, deleteItem, updateItem, generateId
-} from '../lib/storage';
-import { ArrowUpDown, Plus, Trash2, X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import pb from '../lib/pocketbase';
+import { ArrowUpDown, Plus, Trash2, X, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
+
+interface Card {
+  id: string;
+  name: string;
+  balance: number;
+}
+
+interface Credit {
+  id: string;
+  name: string;
+  remainingAmount: number;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  type: string;
+}
+
+interface Transaction {
+  id: string;
+  amount: number;
+  type: string;
+  date: string;
+  description: string;
+  categoryId: string;
+  cardId: string;
+  creditId: string;
+}
 
 export default function TransactionsPage() {
   const { user } = useAuth();
-  const [transactions, setTransactions] = useState<Transaction[]>(
-    getItems<Transaction>('transactions').filter(t => t.userId === user?.id)
-  );
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [credits, setCredits] = useState<Credit[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
 
   // Форма
@@ -23,80 +54,137 @@ export default function TransactionsPage() {
   const [creditId, setCreditId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
 
-  const cards = getItems<Card>('cards').filter(c => c.userId === user?.id);
-  const credits = getItems<Credit>('credits').filter(c => c.userId === user?.id);
-  const categories = getItems<Category>('categories').filter(c => c.userId === user?.id && c.type === type);
+  useEffect(() => {
+    loadData();
+  }, [user]);
 
-  const refreshTransactions = () => {
-    setTransactions(getItems<Transaction>('transactions').filter(t => t.userId === user?.id));
+  useEffect(() => {
+    // Фильтруем категории по типу
+    if (user) {
+      loadCategories();
+    }
+  }, [type, user]);
+
+  const loadData = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const [transactionsRes, cardsRes, creditsRes, categoriesRes] = await Promise.all([
+        pb.collection('transactions').getFullList({
+          filter: `userId = "${user.id}"`,
+          sort: '-date',
+        }),
+        pb.collection('cards').getFullList({ filter: `userId = "${user.id}"` }),
+        pb.collection('credits').getFullList({ filter: `userId = "${user.id}"` }),
+        pb.collection('categories').getFullList({ filter: `userId = "${user.id}"` }),
+      ]);
+      setTransactions(transactionsRes as any);
+      setCards(cardsRes as any);
+      setCredits(creditsRes as any);
+      setCategories(categoriesRes as any);
+    } catch (err) {
+      console.error('Error loading data:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAdd = (e: React.FormEvent) => {
+  const loadCategories = async () => {
+    if (!user) return;
+    try {
+      const records = await pb.collection('categories').getFullList({
+        filter: `userId = "${user.id}" && type = "${type}"`,
+      });
+      setCategories(records as any);
+    } catch (err) {
+      console.error('Error loading categories:', err);
+    }
+  };
+
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || parseFloat(amount) <= 0) return;
+    if (!amount || parseFloat(amount) <= 0 || !user) return;
 
-    const transaction: Transaction = {
-      id: generateId(),
-      amount: parseFloat(amount),
-      type,
-      date,
-      description: description.trim(),
-      categoryId,
-      cardId,
-      creditId,
-      userId: user!.id,
-    };
-    addItem('transactions', transaction);
+    setSubmitting(true);
+    try {
+      // 1. Создаём транзакцию
+      const record = await pb.collection('transactions').create({
+        amount: parseFloat(amount),
+        type,
+        date,
+        description: description.trim(),
+        categoryId,
+        cardId,
+        creditId,
+        userId: user.id,
+      });
 
-    // Обновить баланс карты
-    if (cardId) {
-      const allCards = getItems<Card>('cards');
-      const card = allCards.find(c => c.id === cardId);
-      if (card) {
-        const newBalance = type === 'income'
-          ? card.balance + parseFloat(amount)
-          : card.balance - parseFloat(amount);
-        updateItem<Card>('cards', cardId, { balance: newBalance });
+      // 2. Обновляем баланс карты
+      if (cardId) {
+        const card = cards.find(c => c.id === cardId);
+        if (card) {
+          const newBalance = type === 'income'
+            ? card.balance + parseFloat(amount)
+            : card.balance - parseFloat(amount);
+          await pb.collection('cards').update(cardId, { balance: newBalance });
+        }
       }
-    }
 
-    // Обновить остаток кредита
-    if (creditId && type === 'expense') {
-      const allCredits = getItems<Credit>('credits');
-      const credit = allCredits.find(c => c.id === creditId);
-      if (credit) {
-        const newRemaining = Math.max(0, credit.remainingAmount - parseFloat(amount));
-        updateItem<Credit>('credits', creditId, { remainingAmount: newRemaining });
+      // 3. Обновляем остаток кредита (только для расходов)
+      if (creditId && type === 'expense') {
+        const credit = credits.find(c => c.id === creditId);
+        if (credit) {
+          const newRemaining = Math.max(0, credit.remainingAmount - parseFloat(amount));
+          await pb.collection('credits').update(creditId, { remainingAmount: newRemaining });
+        }
       }
-    }
 
-    setAmount('');
-    setDescription('');
-    setCategoryId('');
-    setCardId('');
-    setCreditId('');
-    setShowAdd(false);
-    refreshTransactions();
+      // Обновляем UI
+      setTransactions([record as any, ...transactions]);
+      setAmount('');
+      setDescription('');
+      setCategoryId('');
+      setCardId('');
+      setCreditId('');
+      setShowAdd(false);
+
+      // Перезагружаем данные для актуальности
+      await loadData();
+    } catch (err) {
+      console.error('Error creating transaction:', err);
+      alert('Ошибка при создании операции');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Удалить эту операцию?')) return;
-    
-    // Откатить баланс карты
-    const transaction = transactions.find(t => t.id === id);
-    if (transaction?.cardId) {
-      const allCards = getItems<Card>('cards');
-      const card = allCards.find(c => c.id === transaction.cardId);
-      if (card) {
-        const newBalance = transaction.type === 'income'
-          ? card.balance - transaction.amount
-          : card.balance + transaction.amount;
-        updateItem<Card>('cards', transaction.cardId, { balance: newBalance });
-      }
-    }
 
-    deleteItem<Transaction>('transactions', id);
-    refreshTransactions();
+    try {
+      const transaction = transactions.find(t => t.id === id);
+      
+      // Откатываем баланс карты
+      if (transaction?.cardId) {
+        const card = cards.find(c => c.id === transaction.cardId);
+        if (card) {
+          const newBalance = transaction.type === 'income'
+            ? card.balance - transaction.amount
+            : card.balance + transaction.amount;
+          await pb.collection('cards').update(transaction.cardId, { balance: newBalance });
+        }
+      }
+
+      // Удаляем транзакцию
+      await pb.collection('transactions').delete(id);
+      setTransactions(transactions.filter(t => t.id !== id));
+
+      // Перезагружаем данные
+      await loadData();
+    } catch (err) {
+      console.error('Error deleting transaction:', err);
+      alert('Ошибка при удалении операции');
+    }
   };
 
   const formatMoney = (amount: number) => {
@@ -108,8 +196,7 @@ export default function TransactionsPage() {
   };
 
   const getCategoryInfo = (catId: string) => {
-    const allCategories = getItems<Category>('categories');
-    return allCategories.find(c => c.id === catId);
+    return categories.find(c => c.id === catId);
   };
 
   const filteredTransactions = [...transactions]
@@ -123,6 +210,14 @@ export default function TransactionsPage() {
     if (!grouped[dateKey]) grouped[dateKey] = [];
     grouped[dateKey].push(t);
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -339,9 +434,11 @@ export default function TransactionsPage() {
 
               <button
                 type="submit"
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition"
+                disabled={submitting}
+                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
-                Добавить операцию
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {submitting ? 'Добавление...' : 'Добавить операцию'}
               </button>
             </form>
           </div>

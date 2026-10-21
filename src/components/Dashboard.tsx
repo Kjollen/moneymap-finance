@@ -1,20 +1,84 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Card, Credit, Category, Transaction,
-  getItems
-} from '../lib/storage';
+import pb from '../lib/pocketbase';
 import {
   Wallet, CreditCard, TrendingUp, TrendingDown,
-  PieChart, ArrowUpRight, ArrowDownRight
+  PieChart, ArrowUpRight, ArrowDownRight, Loader2
 } from 'lucide-react';
+
+interface Card {
+  id: string;
+  name: string;
+  balance: number;
+}
+
+interface Credit {
+  id: string;
+  name: string;
+  totalAmount: number;
+  remainingAmount: number;
+  monthlyPayment: number;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  type: string;
+}
+
+interface Transaction {
+  id: string;
+  amount: number;
+  type: string;
+  date: string;
+  description: string;
+  categoryId: string;
+  cardId: string;
+  creditId: string;
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const cards = getItems<Card>('cards').filter(c => c.userId === user?.id);
-  const credits = getItems<Credit>('credits').filter(c => c.userId === user?.id);
-  const categories = getItems<Category>('categories').filter(c => c.userId === user?.id);
-  const transactions = getItems<Transaction>('transactions').filter(t => t.userId === user?.id);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [credits, setCredits] = useState<Credit[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, [user]);
+
+  const loadData = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const [cardsRes, creditsRes, categoriesRes, transactionsRes] = await Promise.all([
+        pb.collection('cards').getFullList({ filter: `userId = "${user.id}"` }),
+        pb.collection('credits').getFullList({ filter: `userId = "${user.id}"` }),
+        pb.collection('categories').getFullList({ filter: `userId = "${user.id}"` }),
+        pb.collection('transactions').getFullList({ filter: `userId = "${user.id}"`, sort: '-date' }),
+      ]);
+      setCards(cardsRes as any);
+      setCredits(creditsRes as any);
+      setCategories(categoriesRes as any);
+      setTransactions(transactionsRes as any);
+    } catch (err) {
+      console.error('Error loading data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+      </div>
+    );
+  }
 
   const totalBalance = cards.reduce((sum, c) => sum + c.balance, 0);
   const totalCredit = credits.reduce((sum, c) => sum + c.remainingAmount, 0);
@@ -24,9 +88,7 @@ export default function Dashboard() {
   const monthIncome = monthTransactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
   const monthExpense = monthTransactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
 
-  const recentTransactions = [...transactions]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5);
+  const recentTransactions = transactions.slice(0, 5);
 
   const formatMoney = (amount: number) => {
     return new Intl.NumberFormat('ru-RU', {

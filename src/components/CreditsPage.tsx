@@ -1,50 +1,83 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Credit, getItems, addItem, deleteItem, generateId
-} from '../lib/storage';
-import { CreditCard, Plus, Trash2, X } from 'lucide-react';
+import pb from '../lib/pocketbase';
+import { CreditCard, Plus, Trash2, X, Loader2 } from 'lucide-react';
+
+interface Credit {
+  id: string;
+  name: string;
+  totalAmount: number;
+  remainingAmount: number;
+  monthlyPayment: number;
+  userId: string;
+}
 
 export default function CreditsPage() {
   const { user } = useAuth();
-  const [credits, setCredits] = useState<Credit[]>(
-    getItems<Credit>('credits').filter(c => c.userId === user?.id)
-  );
+  const [credits, setCredits] = useState<Credit[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [remainingAmount, setRemainingAmount] = useState('');
   const [monthlyPayment, setMonthlyPayment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const refreshCredits = () => {
-    setCredits(getItems<Credit>('credits').filter(c => c.userId === user?.id));
+  useEffect(() => {
+    loadCredits();
+  }, [user]);
+
+  const loadCredits = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const records = await pb.collection('credits').getFullList({
+        filter: `userId = "${user.id}"`,
+      });
+      setCredits(records as any);
+    } catch (err) {
+      console.error('Error loading credits:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !totalAmount) return;
+    if (!name.trim() || !totalAmount || !user) return;
 
-    const credit: Credit = {
-      id: generateId(),
-      name: name.trim(),
-      totalAmount: parseFloat(totalAmount),
-      remainingAmount: parseFloat(remainingAmount) || parseFloat(totalAmount),
-      monthlyPayment: parseFloat(monthlyPayment) || 0,
-      userId: user!.id,
-    };
-    addItem('credits', credit);
-    setName('');
-    setTotalAmount('');
-    setRemainingAmount('');
-    setMonthlyPayment('');
-    setShowAdd(false);
-    refreshCredits();
+    setSubmitting(true);
+    try {
+      const record = await pb.collection('credits').create({
+        name: name.trim(),
+        totalAmount: parseFloat(totalAmount),
+        remainingAmount: remainingAmount ? parseFloat(remainingAmount) : parseFloat(totalAmount),
+        monthlyPayment: monthlyPayment ? parseFloat(monthlyPayment) : 0,
+        userId: user.id,
+      });
+      setCredits([...credits, record as any]);
+      setName('');
+      setTotalAmount('');
+      setRemainingAmount('');
+      setMonthlyPayment('');
+      setShowAdd(false);
+    } catch (err) {
+      console.error('Error creating credit:', err);
+      alert('Ошибка при создании кредита');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Удалить этот кредит?')) return;
-    deleteItem<Credit>('credits', id);
-    refreshCredits();
+    try {
+      await pb.collection('credits').delete(id);
+      setCredits(credits.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Error deleting credit:', err);
+      alert('Ошибка при удалении кредита');
+    }
   };
 
   const formatMoney = (amount: number) => {
@@ -58,6 +91,14 @@ export default function CreditsPage() {
   const getProgress = (credit: Credit) => {
     return ((credit.totalAmount - credit.remainingAmount) / credit.totalAmount) * 100;
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -189,9 +230,11 @@ export default function CreditsPage() {
               </div>
               <button
                 type="submit"
-                className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl transition"
+                disabled={submitting}
+                className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
-                Добавить кредит
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {submitting ? 'Добавление...' : 'Добавить кредит'}
               </button>
             </form>
           </div>

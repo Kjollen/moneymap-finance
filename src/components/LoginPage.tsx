@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { loginUser, registerUser } from '../lib/storage';
-import { Wallet, Eye, EyeOff } from 'lucide-react';
+import pb from '../lib/pocketbase';
+import { Wallet, Eye, EyeOff, Loader2, Server, WifiOff } from 'lucide-react';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -11,29 +11,77 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setConnectionError(false);
+    setLoading(true);
 
-    if (isRegister) {
-      if (!name.trim()) {
-        setError('Введите имя');
-        return;
+    try {
+      if (isRegister) {
+        // Регистрация
+        if (!name.trim()) {
+          setError('Введите имя');
+          setLoading(false);
+          return;
+        }
+        
+        const data = {
+          email,
+          password,
+          passwordConfirm: password,
+          name: name.trim(),
+        };
+
+        const record = await pb.collection('users').create(data);
+        
+        // Авторизуемся сразу после регистрации
+        const authData = await pb.collection('users').authWithPassword(email, password);
+        
+        login({
+          id: authData.record.id,
+          email: authData.record.email || '',
+          name: authData.record.name || name.trim(),
+        });
+      } else {
+        // Вход
+        const authData = await pb.collection('users').authWithPassword(email, password);
+        
+        login({
+          id: authData.record.id,
+          email: authData.record.email || '',
+          name: authData.record.name || authData.record.email || 'Пользователь',
+        });
       }
-      const user = registerUser(email, password, name);
-      if (!user) {
-        setError('Пользователь с таким email уже существует');
-        return;
+    } catch (err: any) {
+      console.error('Auth error:', err);
+      
+      // Проверяем тип ошибки
+      if (err.status === 0 || err.name === 'ClientResponseError' && !err.status) {
+        setConnectionError(true);
+        setError('Не удалось подключиться к серверу. Проверьте интернет-соединение.');
+      } else if (err.status === 400) {
+        if (isRegister) {
+          // Ошибки валидации при регистрации
+          const dataErrors = err.response?.data;
+          if (dataErrors?.email) {
+            setError('Этот email уже используется');
+          } else if (dataErrors?.password) {
+            setError('Пароль слишком простой (минимум 8 символов)');
+          } else {
+            setError('Ошибка регистрации. Проверьте данные.');
+          }
+        } else {
+          setError('Неверный email или пароль');
+        }
+      } else {
+        setError(err.message || 'Произошла ошибка');
       }
-      login(user);
-    } else {
-      const user = loginUser(email, password);
-      if (!user) {
-        setError('Неверный email или пароль');
-        return;
-      }
-      login(user);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -48,6 +96,19 @@ export default function LoginPage() {
           <h1 className="text-3xl font-bold text-white">MoneyMap</h1>
           <p className="text-emerald-200 mt-2">Ваш финансовый помощник</p>
         </div>
+
+        {/* Статус подключения */}
+        {connectionError && (
+          <div className="bg-red-500/20 border border-red-400/30 rounded-xl p-4 mb-4 flex items-start gap-3">
+            <WifiOff className="w-5 h-5 text-red-300 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-200 font-medium text-sm">Нет связи с сервером</p>
+              <p className="text-red-300/70 text-xs mt-1">
+                Убедитесь, что сервер PocketBase запущен на moneymap-finance.duckdns.org
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Форма */}
         <div className="bg-white/10 backdrop-blur-md rounded-2xl p-8 shadow-2xl border border-white/20">
@@ -88,6 +149,7 @@ export default function LoginPage() {
             <div>
               <label className="block text-sm font-medium text-emerald-200 mb-1">
                 Пароль
+                {isRegister && <span className="text-emerald-300/60 ml-1">(мин. 8 символов)</span>}
               </label>
               <div className="relative">
                 <input
@@ -97,7 +159,7 @@ export default function LoginPage() {
                   className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-emerald-400 transition pr-12"
                   placeholder="••••••••"
                   required
-                  minLength={4}
+                  minLength={isRegister ? 8 : 1}
                 />
                 <button
                   type="button"
@@ -117,9 +179,19 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold rounded-xl transition shadow-lg shadow-emerald-500/30"
+              disabled={loading}
+              className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-500/50 text-white font-semibold rounded-xl transition shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2"
             >
-              {isRegister ? 'Зарегистрироваться' : 'Войти'}
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Подключение...
+                </>
+              ) : (
+                <>
+                  {isRegister ? 'Зарегистрироваться' : 'Войти'}
+                </>
+              )}
             </button>
           </form>
 
@@ -136,9 +208,10 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <p className="text-center text-white/40 text-xs mt-6">
-          Данные хранятся локально в вашем браузере
-        </p>
+        <div className="flex items-center justify-center gap-2 mt-6 text-white/40 text-xs">
+          <Server className="w-3 h-3" />
+          <span>Данные синхронизируются через сервер</span>
+        </div>
       </div>
     </div>
   );

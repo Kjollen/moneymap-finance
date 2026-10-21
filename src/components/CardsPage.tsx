@@ -1,44 +1,75 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Card, getItems, setItems, addItem, deleteItem, generateId
-} from '../lib/storage';
-import { CreditCard, Plus, Trash2, X } from 'lucide-react';
+import pb from '../lib/pocketbase';
+import { CreditCard, Plus, Trash2, X, Loader2 } from 'lucide-react';
+
+interface Card {
+  id: string;
+  name: string;
+  balance: number;
+  userId: string;
+}
 
 export default function CardsPage() {
   const { user } = useAuth();
-  const [cards, setCards] = useState<Card[]>(
-    getItems<Card>('cards').filter(c => c.userId === user?.id)
-  );
+  const [cards, setCards] = useState<Card[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const refreshCards = () => {
-    setCards(getItems<Card>('cards').filter(c => c.userId === user?.id));
+  useEffect(() => {
+    loadCards();
+  }, [user]);
+
+  const loadCards = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const records = await pb.collection('cards').getFullList({
+        filter: `userId = "${user.id}"`,
+      });
+      setCards(records as any);
+    } catch (err) {
+      console.error('Error loading cards:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !balance) return;
+    if (!name.trim() || !balance || !user) return;
 
-    const card: Card = {
-      id: generateId(),
-      name: name.trim(),
-      balance: parseFloat(balance),
-      userId: user!.id,
-    };
-    addItem('cards', card);
-    setName('');
-    setBalance('');
-    setShowAdd(false);
-    refreshCards();
+    setSubmitting(true);
+    try {
+      const record = await pb.collection('cards').create({
+        name: name.trim(),
+        balance: parseFloat(balance),
+        userId: user.id,
+      });
+      setCards([...cards, record as any]);
+      setName('');
+      setBalance('');
+      setShowAdd(false);
+    } catch (err) {
+      console.error('Error creating card:', err);
+      alert('Ошибка при создании карты');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Удалить эту карту?')) return;
-    deleteItem<Card>('cards', id);
-    refreshCards();
+    try {
+      await pb.collection('cards').delete(id);
+      setCards(cards.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Error deleting card:', err);
+      alert('Ошибка при удалении карты');
+    }
   };
 
   const formatMoney = (amount: number) => {
@@ -57,6 +88,14 @@ export default function CardsPage() {
     'from-cyan-500 to-blue-600',
     'from-gray-800 to-gray-900',
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -145,9 +184,11 @@ export default function CardsPage() {
               </div>
               <button
                 type="submit"
-                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition"
+                disabled={submitting}
+                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
-                Добавить карту
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {submitting ? 'Добавление...' : 'Добавить карту'}
               </button>
             </form>
           </div>

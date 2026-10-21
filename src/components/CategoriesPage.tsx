@@ -1,58 +1,99 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Category, getItems, addItem, deleteItem, generateId
-} from '../lib/storage';
-import { Tag, Plus, Trash2, X } from 'lucide-react';
+import pb from '../lib/pocketbase';
+import { Tag, Plus, Trash2, X, Loader2 } from 'lucide-react';
+
+interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  type: 'income' | 'expense';
+  userId: string;
+}
 
 const DEFAULT_ICONS = ['🛒', '🏠', '🚗', '💊', '🎮', '📱', '👕', '🍕', '⛽', '💡', '📚', '✈️', '🎁', '💰', '💼', '🏥', '🎬', '🐕', '🏋️', '☕'];
 const DEFAULT_COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
 
 export default function CategoriesPage() {
   const { user } = useAuth();
-  const [categories, setCategories] = useState<Category[]>(
-    getItems<Category>('categories').filter(c => c.userId === user?.id)
-  );
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('💰');
   const [color, setColor] = useState('#10b981');
   const [type, setType] = useState<'income' | 'expense'>('expense');
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
+  const [submitting, setSubmitting] = useState(false);
 
-  const refreshCategories = () => {
-    setCategories(getItems<Category>('categories').filter(c => c.userId === user?.id));
+  useEffect(() => {
+    loadCategories();
+  }, [user]);
+
+  const loadCategories = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const records = await pb.collection('categories').getFullList({
+        filter: `userId = "${user.id}"`,
+      });
+      setCategories(records as any);
+    } catch (err) {
+      console.error('Error loading categories:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || !user) return;
 
-    const category: Category = {
-      id: generateId(),
-      name: name.trim(),
-      icon,
-      color,
-      type,
-      userId: user!.id,
-    };
-    addItem('categories', category);
-    setName('');
-    setIcon('💰');
-    setColor('#10b981');
-    setShowAdd(false);
-    refreshCategories();
+    setSubmitting(true);
+    try {
+      const record = await pb.collection('categories').create({
+        name: name.trim(),
+        icon,
+        color,
+        type,
+        userId: user.id,
+      });
+      setCategories([...categories, record as any]);
+      setName('');
+      setIcon('💰');
+      setColor('#10b981');
+      setShowAdd(false);
+    } catch (err) {
+      console.error('Error creating category:', err);
+      alert('Ошибка при создании категории');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Удалить эту категорию?')) return;
-    deleteItem<Category>('categories', id);
-    refreshCategories();
+    try {
+      await pb.collection('categories').delete(id);
+      setCategories(categories.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Error deleting category:', err);
+      alert('Ошибка при удалении категории');
+    }
   };
 
   const filteredCategories = categories.filter(c => filter === 'all' || c.type === filter);
   const incomeCategories = filteredCategories.filter(c => c.type === 'income');
   const expenseCategories = filteredCategories.filter(c => c.type === 'expense');
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -231,9 +272,11 @@ export default function CategoriesPage() {
 
               <button
                 type="submit"
-                className="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold rounded-xl transition"
+                disabled={submitting}
+                className="w-full py-3 bg-purple-500 hover:bg-purple-600 disabled:bg-purple-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
-                Добавить категорию
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {submitting ? 'Добавление...' : 'Добавить категорию'}
               </button>
             </form>
           </div>
