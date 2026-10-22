@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import pb from '../lib/pocketbase';
-import { Wallet, Plus, Trash2, X, Loader2, Target, TrendingUp, TrendingDown, CreditCard, Calendar } from 'lucide-react';
+import { Wallet, Plus, Trash2, X, Loader2, Target, TrendingUp, TrendingDown, CreditCard, Calendar, Edit2 } from 'lucide-react';
 
 interface BudgetPlan {
   id: string;
@@ -59,6 +59,8 @@ export default function BudgetPage() {
   const [showAddPlan, setShowAddPlan] = useState(false);
   const [showAddBudget, setShowAddBudget] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<BudgetPlan | null>(null);
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -116,26 +118,49 @@ export default function BudgetPage() {
 
     setSubmitting(true);
     try {
-      const record = await pb.collection('budget_plans').create({
-        name: planName.trim(),
-        amount: parseFloat(planAmount),
-        type: planType,
-        dayOfMonth: parseInt(planDay),
-        recurring: true,
-        month: selectedMonth,
-        userId: user.id,
-      });
-      setBudgetPlans([...budgetPlans, record as any]);
+      if (editingPlan) {
+        // Режим редактирования
+        const updated = await pb.collection('budget_plans').update(editingPlan.id, {
+          name: planName.trim(),
+          amount: parseFloat(planAmount),
+          type: planType,
+          dayOfMonth: parseInt(planDay),
+        });
+        setBudgetPlans(budgetPlans.map(p => p.id === editingPlan.id ? updated as any : p));
+        setEditingPlan(null);
+      } else {
+        // Режим создания
+        const record = await pb.collection('budget_plans').create({
+          name: planName.trim(),
+          amount: parseFloat(planAmount),
+          type: planType,
+          dayOfMonth: parseInt(planDay),
+          recurring: true,
+          month: selectedMonth,
+          userId: user.id,
+        });
+        setBudgetPlans([...budgetPlans, record as any]);
+      }
       setPlanName('');
       setPlanAmount('');
       setPlanDay('');
+      setPlanType('income');
       setShowAddPlan(false);
     } catch (err) {
-      console.error('Error creating plan:', err);
-      alert('Ошибка при создании плана');
+      console.error('Error saving plan:', err);
+      alert('Ошибка при сохранении плана');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleEditPlan = (plan: BudgetPlan) => {
+    setEditingPlan(plan);
+    setPlanName(plan.name);
+    setPlanAmount(plan.amount.toString());
+    setPlanType(plan.type);
+    setPlanDay(plan.dayOfMonth.toString());
+    setShowAddPlan(true);
   };
 
   const handleDeletePlan = async (id: string) => {
@@ -155,22 +180,39 @@ export default function BudgetPage() {
 
     setSubmitting(true);
     try {
-      const record = await pb.collection('budgets').create({
-        month: selectedMonth,
-        categoryId,
-        amount: parseFloat(budgetAmount),
-        userId: user.id,
-      });
-      setBudgets([...budgets, record as any]);
+      if (editingBudget) {
+        // Режим редактирования
+        const updated = await pb.collection('budgets').update(editingBudget.id, {
+          amount: parseFloat(budgetAmount),
+        });
+        setBudgets(budgets.map(b => b.id === editingBudget.id ? updated as any : b));
+        setEditingBudget(null);
+      } else {
+        // Режим создания
+        const record = await pb.collection('budgets').create({
+          month: selectedMonth,
+          categoryId,
+          amount: parseFloat(budgetAmount),
+          userId: user.id,
+        });
+        setBudgets([...budgets, record as any]);
+      }
       setCategoryId('');
       setBudgetAmount('');
       setShowAddBudget(false);
     } catch (err) {
-      console.error('Error creating budget:', err);
-      alert('Ошибка при создании бюджета');
+      console.error('Error saving budget:', err);
+      alert('Ошибка при сохранении бюджета');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleEditBudget = (budget: Budget) => {
+    setEditingBudget(budget);
+    setCategoryId(budget.categoryId);
+    setBudgetAmount(budget.amount.toString());
+    setShowAddBudget(true);
   };
 
   const handleDeleteBudget = async (id: string) => {
@@ -296,9 +338,25 @@ export default function BudgetPage() {
           {incomePlans.length > 0 && (
             <div className="mt-3 space-y-1">
               {incomePlans.sort((a, b) => a.dayOfMonth - b.dayOfMonth).map(plan => (
-                <div key={plan.id} className="flex items-center justify-between text-xs text-green-600">
+                <div key={plan.id} className="flex items-center justify-between text-xs text-green-600 group">
                   <span>{plan.dayOfMonth} числа — {plan.name}</span>
-                  <span className="font-medium">{formatMoney(plan.amount)}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="font-medium">{formatMoney(plan.amount)}</span>
+                    <button
+                      onClick={() => handleEditPlan(plan)}
+                      className="opacity-0 group-hover:opacity-100 text-green-500 hover:text-green-700 transition p-0.5"
+                      title="Редактировать"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => handleDeletePlan(plan.id)}
+                      className="opacity-0 group-hover:opacity-100 text-green-500 hover:text-red-600 transition p-0.5"
+                      title="Удалить"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -313,9 +371,25 @@ export default function BudgetPage() {
           <p className="text-2xl font-bold text-red-700">{formatMoney(totalMandatoryExpense)}</p>
           <div className="mt-3 space-y-1">
             {expensePlans.sort((a, b) => a.dayOfMonth - b.dayOfMonth).map(plan => (
-              <div key={plan.id} className="flex items-center justify-between text-xs text-red-600">
+              <div key={plan.id} className="flex items-center justify-between text-xs text-red-600 group">
                 <span>{plan.dayOfMonth} числа — {plan.name}</span>
-                <span className="font-medium">{formatMoney(plan.amount)}</span>
+                <div className="flex items-center gap-1">
+                  <span className="font-medium">{formatMoney(plan.amount)}</span>
+                  <button
+                    onClick={() => handleEditPlan(plan)}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-700 transition p-0.5"
+                    title="Редактировать"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => handleDeletePlan(plan.id)}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition p-0.5"
+                    title="Удалить"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             ))}
             {credits.filter(c => c.paymentDay).sort((a, b) => a.paymentDay - b.paymentDay).map(credit => (
@@ -400,12 +474,22 @@ export default function BudgetPage() {
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleDeleteBudget(budget.id)}
-                      className="text-gray-300 hover:text-red-500 transition"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleEditBudget(budget)}
+                        className="text-gray-300 hover:text-blue-500 transition"
+                        title="Редактировать"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBudget(budget.id)}
+                        className="text-gray-300 hover:text-red-500 transition"
+                        title="Удалить"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   <div className="w-full bg-gray-100 rounded-full h-2">
                     <div
@@ -430,8 +514,10 @@ export default function BudgetPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-800">Новый пункт плана</h2>
-              <button onClick={() => setShowAddPlan(false)} className="text-gray-400 hover:text-gray-600">
+              <h2 className="text-xl font-bold text-gray-800">
+                {editingPlan ? 'Редактировать пункт плана' : 'Новый пункт плана'}
+              </h2>
+              <button onClick={() => { setShowAddPlan(false); setEditingPlan(null); setPlanName(''); setPlanAmount(''); setPlanDay(''); setPlanType('income'); }} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -507,7 +593,7 @@ export default function BudgetPage() {
                 className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {submitting ? 'Сохранение...' : 'Добавить'}
+                {submitting ? 'Сохранение...' : (editingPlan ? 'Сохранить' : 'Добавить')}
               </button>
             </form>
           </div>
@@ -519,32 +605,43 @@ export default function BudgetPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-800">Бюджет по категории</h2>
-              <button onClick={() => setShowAddBudget(false)} className="text-gray-400 hover:text-gray-600">
+              <h2 className="text-xl font-bold text-gray-800">
+                {editingBudget ? 'Редактировать бюджет' : 'Бюджет по категории'}
+              </h2>
+              <button onClick={() => { setShowAddBudget(false); setEditingBudget(null); setCategoryId(''); setBudgetAmount(''); }} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleAddBudget} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
-                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-                  {expenseCategories.map(cat => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setCategoryId(cat.id)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition ${
-                        categoryId === cat.id
-                          ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-300'
-                          : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
-                      }`}
-                    >
-                      <span>{cat.icon}</span>
-                      <span className="truncate">{cat.name}</span>
-                    </button>
-                  ))}
-                </div>
-                {expenseCategories.length === 0 && (
+                {editingBudget ? (
+                  <div className="px-4 py-3 bg-gray-100 rounded-xl text-gray-600 text-sm">
+                    {(() => {
+                      const cat = getCategoryInfo(editingBudget);
+                      return <span className="flex items-center gap-2"><span>{cat?.icon}</span><span>{cat?.name || 'Категория'}</span></span>;
+                    })()}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                    {expenseCategories.map(cat => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setCategoryId(cat.id)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition ${
+                          categoryId === cat.id
+                            ? 'bg-indigo-100 text-indigo-700 border-2 border-indigo-300'
+                            : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span>{cat.icon}</span>
+                        <span className="truncate">{cat.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {expenseCategories.length === 0 && !editingBudget && (
                   <p className="text-xs text-gray-400 mt-1">Сначала добавьте категории расходов</p>
                 )}
               </div>
@@ -569,7 +666,7 @@ export default function BudgetPage() {
                 className="w-full py-3 bg-purple-500 hover:bg-purple-600 disabled:bg-purple-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {submitting ? 'Сохранение...' : 'Запланировать'}
+                {submitting ? 'Сохранение...' : (editingBudget ? 'Сохранить' : 'Запланировать')}
               </button>
             </form>
           </div>
