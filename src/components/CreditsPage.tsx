@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import pb from '../lib/pocketbase';
-import { CreditCard, Plus, Trash2, X, Loader2, Edit2 } from 'lucide-react';
+import { CreditCard, Plus, Trash2, X, Loader2, Edit2, CheckCircle } from 'lucide-react';
 
 interface Credit {
   id: string;
@@ -21,6 +21,7 @@ export default function CreditsPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editingCredit, setEditingCredit] = useState<Credit | null>(null);
+  const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('active');
   const [name, setName] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [remainingAmount, setRemainingAmount] = useState('');
@@ -184,6 +185,21 @@ export default function CreditsPage() {
     }
   };
 
+  // Закрыть кредит досрочно
+  const closeCredit = async (credit: Credit) => {
+    if (!confirm(`Закрыть кредит "${credit.name}" досрочно?\n\nОстаток долга будет обнулён.`)) return;
+    
+    try {
+      const updated = await pb.collection('credits').update(credit.id, {
+        remainingAmount: 0,
+      });
+      setCredits(credits.map(c => c.id === credit.id ? updated as any : c));
+    } catch (err) {
+      console.error('Error closing credit:', err);
+      alert('Ошибка при закрытии кредита');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -191,6 +207,13 @@ export default function CreditsPage() {
       </div>
     );
   }
+
+  // Фильтрация кредитов
+  const filteredCredits = credits.filter(c => {
+    if (filter === 'active') return c.remainingAmount > 0;
+    if (filter === 'closed') return c.remainingAmount <= 0;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -208,21 +231,62 @@ export default function CreditsPage() {
         </button>
       </div>
 
-      {credits.length === 0 ? (
+      {/* Фильтр */}
+      <div className="flex gap-2">
+        {(['active', 'all', 'closed'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition ${
+              filter === f
+                ? 'bg-orange-500 text-white shadow-sm'
+                : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+            }`}
+          >
+            {f === 'all' ? 'Все' : f === 'active' ? 'Активные' : 'Закрытые'}
+          </button>
+        ))}
+      </div>
+
+      {filteredCredits.length === 0 ? (
         <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100">
           <CreditCard className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500 text-lg">Пока нет кредитов</p>
-          <p className="text-gray-400 text-sm mt-1">Добавьте кредит для отслеживания</p>
+          <p className="text-gray-500 text-lg">
+            {filter === 'active' ? 'Нет активных кредитов' : filter === 'closed' ? 'Нет закрытых кредитов' : 'Пока нет кредитов'}
+          </p>
+          {filter !== 'all' && (
+            <p className="text-gray-400 text-sm mt-1">
+              {filter === 'active' ? 'Все кредиты погашены!' : 'Добавьте кредит для отслеживания'}
+            </p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {credits.map(credit => {
+          {filteredCredits.map(credit => {
             const progress = getProgress(credit);
+            const isClosed = credit.remainingAmount <= 0;
             return (
-              <div key={credit.id} className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+              <div key={credit.id} className={`rounded-xl p-6 shadow-sm border ${isClosed ? 'bg-gray-50 border-gray-200 opacity-75' : 'bg-white border-gray-100'}`}>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-800">{credit.name}</h3>
                   <div className="flex items-center gap-2">
+                    <h3 className={`text-lg font-semibold ${isClosed ? 'text-gray-500' : 'text-gray-800'}`}>{credit.name}</h3>
+                    {isClosed && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                        <CheckCircle className="w-3 h-3" />
+                        Закрыт
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {!isClosed && (
+                      <button
+                        onClick={() => closeCredit(credit)}
+                        className="text-gray-400 hover:text-green-500 transition"
+                        title="Закрыть кредит"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       onClick={() => openEdit(credit)}
                       className="text-gray-400 hover:text-blue-500 transition"
@@ -241,7 +305,7 @@ export default function CreditsPage() {
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">Остаток долга</span>
-                    <span className="font-semibold text-orange-600">{formatMoney(credit.remainingAmount)}</span>
+                    <span className={`font-semibold ${isClosed ? 'text-green-600' : 'text-orange-600'}`}>{formatMoney(credit.remainingAmount)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">Сумма кредита</span>
@@ -276,8 +340,8 @@ export default function CreditsPage() {
                     </div>
                   </div>
 
-                  {/* Плашка статуса платежа */}
-                  {credit.paymentDay && (() => {
+                  {/* Плашка статуса платежа (не показываем для закрытых) */}
+                  {!isClosed && credit.paymentDay && (() => {
                     const status = getPaymentStatus(credit);
                     const isPaid = status.label.includes('Оплачено');
                     return (
