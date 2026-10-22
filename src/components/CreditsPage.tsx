@@ -10,6 +10,7 @@ interface Credit {
   remainingAmount: number;
   interestRate: number;
   monthlyPayment: number;
+  paymentDay: number;
   userId: string;
 }
 
@@ -24,6 +25,7 @@ export default function CreditsPage() {
   const [remainingAmount, setRemainingAmount] = useState('');
   const [interestRate, setInterestRate] = useState('');
   const [monthlyPayment, setMonthlyPayment] = useState('');
+  const [paymentDay, setPaymentDay] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -51,15 +53,17 @@ export default function CreditsPage() {
     setRemainingAmount('');
     setInterestRate('');
     setMonthlyPayment('');
+    setPaymentDay('');
   };
 
   const openEdit = (credit: Credit) => {
     setEditingCredit(credit);
     setName(credit.name);
-    setTotalAmount(credit.totalAmount.toString());
-    setRemainingAmount(credit.remainingAmount.toString());
-    setInterestRate(credit.interestRate.toString());
-    setMonthlyPayment(credit.monthlyPayment.toString());
+    setTotalAmount(credit.totalAmount?.toString() || '0');
+    setRemainingAmount(credit.remainingAmount?.toString() || '0');
+    setInterestRate(credit.interestRate?.toString() || '0');
+    setMonthlyPayment(credit.monthlyPayment?.toString() || '0');
+    setPaymentDay(credit.paymentDay?.toString() || '');
     setShowAdd(true);
   };
 
@@ -75,6 +79,7 @@ export default function CreditsPage() {
         remainingAmount: remainingAmount ? parseFloat(remainingAmount) : parseFloat(totalAmount),
         interestRate: interestRate ? parseFloat(interestRate) : 0,
         monthlyPayment: monthlyPayment ? parseFloat(monthlyPayment) : 0,
+        paymentDay: paymentDay ? parseInt(paymentDay) : null,
       };
 
       if (editingCredit) {
@@ -192,6 +197,12 @@ export default function CreditsPage() {
                     <span className="text-gray-500">Ежемесячный платёж</span>
                     <span className="text-gray-700">{formatMoney(credit.monthlyPayment)}</span>
                   </div>
+                  {credit.paymentDay && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">День платежа</span>
+                      <span className="text-gray-700 font-medium">{credit.paymentDay} числа</span>
+                    </div>
+                  )}
 
                   {/* Прогресс-бар */}
                   <div className="mt-4">
@@ -281,6 +292,19 @@ export default function CreditsPage() {
                   placeholder="25000"
                   step="0.01"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">День платежа (число месяца)</label>
+                <input
+                  type="number"
+                  value={paymentDay}
+                  onChange={(e) => setPaymentDay(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="15"
+                  min="1"
+                  max="31"
+                />
+                <p className="text-xs text-gray-400 mt-1">Например, 15 — платёж 15-го числа каждого месяца</p>
               </div>
               <button
                 type="submit"
