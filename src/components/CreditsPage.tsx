@@ -11,6 +11,7 @@ interface Credit {
   interestRate: number;
   monthlyPayment: number;
   paymentDay: number;
+  lastPaidDate: string;
   userId: string;
 }
 
@@ -126,6 +127,63 @@ export default function CreditsPage() {
     return ((credit.totalAmount - credit.remainingAmount) / credit.totalAmount) * 100;
   };
 
+  // Определяем статус платежа
+  const getPaymentStatus = (credit: Credit): { label: string; color: string; bgColor: string; daysLeft: number | null } => {
+    if (!credit.paymentDay) {
+      return { label: 'Дата не указана', color: 'text-gray-500', bgColor: 'bg-gray-100', daysLeft: null };
+    }
+
+    const today = new Date();
+    const currentDay = today.getDate();
+    const currentMonth = today.getMonth();
+    const currentYear = today.getFullYear();
+
+    // Проверяем, оплачен ли в этом месяце
+    if (credit.lastPaidDate) {
+      const lastPaid = new Date(credit.lastPaidDate);
+      if (lastPaid.getMonth() === currentMonth && lastPaid.getFullYear() === currentYear) {
+        return { label: '✓ Оплачено в этом месяце', color: 'text-green-700', bgColor: 'bg-green-100 border-green-200', daysLeft: null };
+      }
+    }
+
+    // Считаем дней до платежа
+    let daysLeft: number;
+    if (credit.paymentDay >= currentDay) {
+      daysLeft = credit.paymentDay - currentDay;
+    } else {
+      // Платёж в следующем месяце
+      const nextMonth = new Date(currentYear, currentMonth + 1, credit.paymentDay);
+      daysLeft = Math.ceil((nextMonth.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    if (daysLeft === 0) {
+      return { label: '⚡ Сегодня день платежа!', color: 'text-red-700', bgColor: 'bg-red-100 border-red-300 animate-pulse', daysLeft };
+    } else if (daysLeft <= 3) {
+      return { label: `⏰ Платёж через ${daysLeft} дн.`, color: 'text-orange-700', bgColor: 'bg-orange-100 border-orange-200', daysLeft };
+    } else if (daysLeft <= 7) {
+      return { label: `📅 Платёж через ${daysLeft} дн.`, color: 'text-yellow-700', bgColor: 'bg-yellow-100 border-yellow-200', daysLeft };
+    } else {
+      return { label: `Платёж через ${daysLeft} дн.`, color: 'text-blue-700', bgColor: 'bg-blue-100 border-blue-200', daysLeft };
+    }
+  };
+
+  // Отметить платёж как оплаченный
+  const markAsPaid = async (credit: Credit) => {
+    if (!confirm(`Отметить платёж "${credit.name}" как оплаченный?`)) return;
+    
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const updated = await pb.collection('credits').update(credit.id, {
+        lastPaidDate: today,
+        remainingAmount: Math.max(0, credit.remainingAmount - credit.monthlyPayment),
+      });
+      setCredits(credits.map(c => c.id === credit.id ? updated as any : c));
+    } catch (err) {
+      console.error('Error marking as paid:', err);
+      alert('Ошибка при обновлении');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -217,6 +275,24 @@ export default function CreditsPage() {
                       />
                     </div>
                   </div>
+
+                  {/* Плашка статуса платежа */}
+                  {credit.paymentDay && (() => {
+                    const status = getPaymentStatus(credit);
+                    const isPaid = status.label.includes('Оплачено');
+                    return (
+                      <button
+                        onClick={() => !isPaid && markAsPaid(credit)}
+                        className={`mt-3 w-full px-3 py-2 rounded-lg border text-sm font-medium transition ${status.bgColor} ${status.color} ${!isPaid ? 'cursor-pointer hover:opacity-80 active:scale-[0.98]' : 'cursor-default'}`}
+                        title={!isPaid ? 'Нажмите, чтобы отметить как оплаченный' : ''}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span>{status.label}</span>
+                          {!isPaid && <span className="text-xs opacity-60">нажмите ✓</span>}
+                        </div>
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             );

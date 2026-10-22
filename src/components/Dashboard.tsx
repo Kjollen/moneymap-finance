@@ -10,6 +10,7 @@ interface Card {
   id: string;
   name: string;
   balance: number;
+  type: string;
 }
 
 interface Credit {
@@ -85,8 +86,17 @@ export default function Dashboard() {
     );
   }
 
-  const totalBalance = cards.reduce((sum, c) => sum + c.balance, 0);
-  const totalCredit = credits.reduce((sum, c) => sum + c.remainingAmount, 0);
+  // Разделяем карты на дебетовые и кредитные
+  const debitCards = cards.filter(c => c.type === 'debit');
+  const creditCards = cards.filter(c => c.type === 'credit');
+  
+  // Общий баланс = только дебетовые карты (реальные деньги)
+  const totalBalance = debitCards.reduce((sum, c) => sum + c.balance, 0);
+  
+  // Долги = кредитные карты + кредиты
+  const creditCardDebt = creditCards.reduce((sum, c) => sum + c.balance, 0);
+  const creditsDebt = credits.reduce((sum, c) => sum + c.remainingAmount, 0);
+  const totalDebt = creditCardDebt + creditsDebt;
   
   const thisMonth = new Date().toISOString().slice(0, 7);
   const monthTransactions = transactions.filter(t => t.date.startsWith(thisMonth));
@@ -160,8 +170,13 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Остаток кредита</p>
-              <p className="text-2xl font-bold text-orange-600 mt-1">{formatMoney(totalCredit)}</p>
+              <p className="text-sm text-gray-500">Общий долг</p>
+              <p className="text-2xl font-bold text-orange-600 mt-1">{formatMoney(totalDebt)}</p>
+              {creditCardDebt > 0 && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Кредитные карты: {formatMoney(creditCardDebt)}
+                </p>
+              )}
             </div>
             <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center">
               <CreditCard className="w-6 h-6 text-orange-600" />

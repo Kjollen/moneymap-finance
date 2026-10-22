@@ -1,11 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import pb from '../lib/pocketbase';
-import { Wallet, Plus, Trash2, X, Loader2, Target } from 'lucide-react';
+import { Wallet, Plus, Trash2, X, Loader2, Target, TrendingUp, TrendingDown, CreditCard, Calendar } from 'lucide-react';
+
+interface BudgetPlan {
+  id: string;
+  name: string;
+  amount: number;
+  type: 'income' | 'expense';
+  dayOfMonth: number;
+  recurring: boolean;
+  userId: string;
+}
+
+interface Credit {
+  id: string;
+  name: string;
+  monthlyPayment: number;
+  paymentDay: number;
+}
 
 interface Budget {
   id: string;
-  month: string; // YYYY-MM
+  month: string;
   categoryId: string;
   amount: number;
   userId: string;
@@ -32,20 +49,29 @@ interface Transaction {
 
 export default function BudgetPage() {
   const { user } = useAuth();
+  const [budgetPlans, setBudgetPlans] = useState<BudgetPlan[]>([]);
+  const [credits, setCredits] = useState<Credit[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
+  const [showAddPlan, setShowAddPlan] = useState(false);
+  const [showAddBudget, setShowAddBudget] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
 
-  // Форма
+  // Форма для budget_plan
+  const [planName, setPlanName] = useState('');
+  const [planAmount, setPlanAmount] = useState('');
+  const [planType, setPlanType] = useState<'income' | 'expense'>('income');
+  const [planDay, setPlanDay] = useState('');
+
+  // Форма для budget
   const [categoryId, setCategoryId] = useState('');
-  const [amount, setAmount] = useState('');
+  const [budgetAmount, setBudgetAmount] = useState('');
 
   useEffect(() => {
     loadData();
@@ -55,7 +81,13 @@ export default function BudgetPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const [budgetsRes, categoriesRes, transactionsRes] = await Promise.all([
+      const [plansRes, creditsRes, budgetsRes, categoriesRes, transactionsRes] = await Promise.all([
+        pb.collection('budget_plans').getFullList({
+          filter: `userId = "${user.id}"`,
+        }),
+        pb.collection('credits').getFullList({
+          filter: `userId = "${user.id}"`,
+        }),
         pb.collection('budgets').getFullList({
           filter: `userId = "${user.id}" && month = "${selectedMonth}"`,
           expand: 'categoryId',
@@ -65,6 +97,8 @@ export default function BudgetPage() {
           filter: `userId = "${user.id}" && date ~ "${selectedMonth}"`,
         }),
       ]);
+      setBudgetPlans(plansRes as any);
+      setCredits(creditsRes as any);
       setBudgets(budgetsRes as any);
       setCategories(categoriesRes as any);
       setTransactions(transactionsRes as any);
@@ -75,22 +109,60 @@ export default function BudgetPage() {
     }
   };
 
-  const handleAdd = async (e: React.FormEvent) => {
+  const handleAddPlan = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!categoryId || !amount || !user) return;
+    if (!planName.trim() || !planAmount || !planDay || !user) return;
+
+    setSubmitting(true);
+    try {
+      const record = await pb.collection('budget_plans').create({
+        name: planName.trim(),
+        amount: parseFloat(planAmount),
+        type: planType,
+        dayOfMonth: parseInt(planDay),
+        recurring: true,
+        userId: user.id,
+      });
+      setBudgetPlans([...budgetPlans, record as any]);
+      setPlanName('');
+      setPlanAmount('');
+      setPlanDay('');
+      setShowAddPlan(false);
+    } catch (err) {
+      console.error('Error creating plan:', err);
+      alert('Ошибка при создании плана');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeletePlan = async (id: string) => {
+    if (!confirm('Удалить этот пункт?')) return;
+    try {
+      await pb.collection('budget_plans').delete(id);
+      setBudgetPlans(budgetPlans.filter(b => b.id !== id));
+    } catch (err) {
+      console.error('Error deleting plan:', err);
+      alert('Ошибка при удалении');
+    }
+  };
+
+  const handleAddBudget = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!categoryId || !budgetAmount || !user) return;
 
     setSubmitting(true);
     try {
       const record = await pb.collection('budgets').create({
         month: selectedMonth,
         categoryId,
-        amount: parseFloat(amount),
+        amount: parseFloat(budgetAmount),
         userId: user.id,
       });
       setBudgets([...budgets, record as any]);
       setCategoryId('');
-      setAmount('');
-      setShowAdd(false);
+      setBudgetAmount('');
+      setShowAddBudget(false);
     } catch (err) {
       console.error('Error creating budget:', err);
       alert('Ошибка при создании бюджета');
@@ -99,7 +171,7 @@ export default function BudgetPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteBudget = async (id: string) => {
     if (!confirm('Удалить этот бюджет?')) return;
     try {
       await pb.collection('budgets').delete(id);
@@ -135,6 +207,16 @@ export default function BudgetPage() {
     return date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
   };
 
+  // Расчёты
+  const incomePlans = budgetPlans.filter(p => p.type === 'income');
+  const expensePlans = budgetPlans.filter(p => p.type === 'expense');
+  
+  const totalIncome = incomePlans.reduce((sum, p) => sum + p.amount, 0);
+  const totalPlannedExpense = expensePlans.reduce((sum, p) => sum + p.amount, 0);
+  const totalCreditPayments = credits.reduce((sum, c) => sum + (c.monthlyPayment || 0), 0);
+  const totalMandatoryExpense = totalPlannedExpense + totalCreditPayments;
+  const freeMoney = totalIncome - totalMandatoryExpense;
+
   const expenseCategories = categories.filter(c => c.type === 'expense');
   const totalBudget = budgets.reduce((sum, b) => sum + b.amount, 0);
   const totalSpent = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
@@ -154,13 +236,22 @@ export default function BudgetPage() {
           <Target className="w-7 h-7 text-indigo-500" />
           Бюджет
         </h1>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Добавить
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowAddPlan(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition shadow-sm text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            План
+          </button>
+          <button
+            onClick={() => setShowAddBudget(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-xl transition shadow-sm text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Категория
+          </button>
+        </div>
       </div>
 
       {/* Выбор месяца */}
@@ -190,91 +281,232 @@ export default function BudgetPage() {
         </button>
       </div>
 
-      {/* Сводка */}
+      {/* Три главных блока */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <p className="text-sm text-gray-500">Запланировано</p>
-          <p className="text-2xl font-bold text-indigo-600 mt-1">{formatMoney(totalBudget)}</p>
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-5 border border-green-200">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="w-5 h-5 text-green-600" />
+            <p className="text-sm font-medium text-green-700">Гарантированные доходы</p>
+          </div>
+          <p className="text-2xl font-bold text-green-700">{formatMoney(totalIncome)}</p>
+          {incomePlans.length > 0 && (
+            <div className="mt-3 space-y-1">
+              {incomePlans.sort((a, b) => a.dayOfMonth - b.dayOfMonth).map(plan => (
+                <div key={plan.id} className="flex items-center justify-between text-xs text-green-600">
+                  <span>{plan.dayOfMonth} числа — {plan.name}</span>
+                  <span className="font-medium">{formatMoney(plan.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <p className="text-sm text-gray-500">Потрачено</p>
-          <p className="text-2xl font-bold text-red-600 mt-1">{formatMoney(totalSpent)}</p>
+
+        <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-xl p-5 border border-red-200">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingDown className="w-5 h-5 text-red-600" />
+            <p className="text-sm font-medium text-red-700">Обязательные платежи</p>
+          </div>
+          <p className="text-2xl font-bold text-red-700">{formatMoney(totalMandatoryExpense)}</p>
+          <div className="mt-3 space-y-1">
+            {expensePlans.sort((a, b) => a.dayOfMonth - b.dayOfMonth).map(plan => (
+              <div key={plan.id} className="flex items-center justify-between text-xs text-red-600">
+                <span>{plan.dayOfMonth} числа — {plan.name}</span>
+                <span className="font-medium">{formatMoney(plan.amount)}</span>
+              </div>
+            ))}
+            {credits.filter(c => c.paymentDay).sort((a, b) => a.paymentDay - b.paymentDay).map(credit => (
+              <div key={credit.id} className="flex items-center justify-between text-xs text-orange-600">
+                <span>{credit.paymentDay} числа — {credit.name}</span>
+                <span className="font-medium">{formatMoney(credit.monthlyPayment)}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <p className="text-sm text-gray-500">Остаток</p>
-          <p className={`text-2xl font-bold mt-1 ${totalBudget - totalSpent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatMoney(totalBudget - totalSpent)}
+
+        <div className={`rounded-xl p-5 border ${freeMoney >= 0 ? 'bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200' : 'bg-gradient-to-br from-red-100 to-red-50 border-red-300'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <Wallet className={`w-5 h-5 ${freeMoney >= 0 ? 'text-blue-600' : 'text-red-600'}`} />
+            <p className={`text-sm font-medium ${freeMoney >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
+              Свободные деньги
+            </p>
+          </div>
+          <p className={`text-2xl font-bold ${freeMoney >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
+            {formatMoney(freeMoney)}
+          </p>
+          <p className={`text-xs mt-2 ${freeMoney >= 0 ? 'text-blue-500' : 'text-red-500'}`}>
+            {freeMoney >= 0
+              ? 'Можно распределить по категориям'
+              : 'Дефицит! Расходы превышают доходы'}
           </p>
         </div>
       </div>
 
-      {/* Бюджеты по категориям */}
-      {budgets.length === 0 ? (
-        <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100">
-          <Target className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500 text-lg">Нет бюджета на этот месяц</p>
-          <p className="text-gray-400 text-sm mt-1">Запланируйте расходы по категориям</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {budgets.map(budget => {
-            const category = getCategoryInfo(budget);
-            const spent = getSpent(budget.categoryId);
-            const percent = budget.amount > 0 ? (spent / budget.amount) * 100 : 0;
-            const isOver = spent > budget.amount;
+      {/* Планирование по категориям */}
+      <div>
+        <h2 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-purple-500" />
+          Распределение по категориям
+          <span className="text-sm font-normal text-gray-400">
+            ({formatMoney(totalSpent)} из {formatMoney(totalBudget)})
+          </span>
+        </h2>
 
-            return (
-              <div key={budget.id} className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
-                      style={{ backgroundColor: category ? `${category.color}20` : '#f3f4f6' }}
+        {budgets.length === 0 ? (
+          <div className="bg-white rounded-xl p-8 text-center shadow-sm border border-gray-100">
+            <Target className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500">Нет бюджета по категориям</p>
+            <p className="text-gray-400 text-sm mt-1">Запланируйте расходы по категориям</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {budgets.map(budget => {
+              const category = getCategoryInfo(budget);
+              const spent = getSpent(budget.categoryId);
+              const percent = budget.amount > 0 ? (spent / budget.amount) * 100 : 0;
+              const isOver = spent > budget.amount;
+
+              return (
+                <div key={budget.id} className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-lg"
+                        style={{ backgroundColor: category ? `${category.color}20` : '#f3f4f6' }}
+                      >
+                        {category?.icon || '💰'}
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-800">{category?.name || 'Категория'}</p>
+                        <p className="text-xs text-gray-400">
+                          {formatMoney(spent)} из {formatMoney(budget.amount)}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteBudget(budget.id)}
+                      className="text-gray-300 hover:text-red-500 transition"
                     >
-                      {category?.icon || '💰'}
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-800">{category?.name || 'Категория'}</p>
-                      <p className="text-xs text-gray-400">
-                        {formatMoney(spent)} из {formatMoney(budget.amount)}
-                      </p>
-                    </div>
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleDelete(budget.id)}
-                    className="text-gray-300 hover:text-red-500 transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all ${
+                        isOver ? 'bg-red-500' : percent > 80 ? 'bg-yellow-500' : 'bg-indigo-500'
+                      }`}
+                      style={{ width: `${Math.min(percent, 100)}%` }}
+                    />
+                  </div>
+                  {isOver && (
+                    <p className="text-xs text-red-500 mt-2">Превышен на {formatMoney(spent - budget.amount)}</p>
+                  )}
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full transition-all ${
-                      isOver ? 'bg-red-500' : percent > 80 ? 'bg-yellow-500' : 'bg-indigo-500'
-                    }`}
-                    style={{ width: `${Math.min(percent, 100)}%` }}
-                  />
-                </div>
-                {isOver && (
-                  <p className="text-xs text-red-500 mt-2">Превышен на {formatMoney(spent - budget.amount)}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-      {/* Модальное окно */}
-      {showAdd && (
+      {/* Модальное окно — План */}
+      {showAddPlan && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-800">Планирование бюджета</h2>
-              <button onClick={() => setShowAdd(false)} className="text-gray-400 hover:text-gray-600">
+              <h2 className="text-xl font-bold text-gray-800">Новый пункт плана</h2>
+              <button onClick={() => setShowAddPlan(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleAdd} className="space-y-4">
+            <form onSubmit={handleAddPlan} className="space-y-4">
+              {/* Тип */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPlanType('income')}
+                  className={`flex-1 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 ${
+                    planType === 'income' ? 'bg-green-100 text-green-700 border-2 border-green-300' : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  <TrendingUp className="w-4 h-4" />
+                  Доход
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlanType('expense')}
+                  className={`flex-1 py-3 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 ${
+                    planType === 'expense' ? 'bg-red-100 text-red-700 border-2 border-red-300' : 'bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  <TrendingDown className="w-4 h-4" />
+                  Расход
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Название</label>
+                <input
+                  type="text"
+                  value={planName}
+                  onChange={(e) => setPlanName(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder={planType === 'income' ? 'Например: Зарплата' : 'Например: Коммуналка'}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Сумма (₽)</label>
+                <input
+                  type="number"
+                  value={planAmount}
+                  onChange={(e) => setPlanAmount(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-lg"
+                  placeholder="0"
+                  step="0.01"
+                  min="0.01"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">День месяца</label>
+                <input
+                  type="number"
+                  value={planDay}
+                  onChange={(e) => setPlanDay(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="15"
+                  min="1"
+                  max="31"
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-1">Число, когда приходит/уходит деньги</p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                {submitting ? 'Сохранение...' : 'Добавить'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно — Бюджет по категории */}
+      {showAddBudget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-8">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-800">Бюджет по категории</h2>
+              <button onClick={() => setShowAddBudget(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAddBudget} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
                 <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
@@ -300,12 +532,12 @@ export default function BudgetPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Сумма (₽)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Лимит на месяц (₽)</label>
                 <input
                   type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-lg"
+                  value={budgetAmount}
+                  onChange={(e) => setBudgetAmount(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-lg"
                   placeholder="0"
                   step="0.01"
                   min="0.01"
@@ -316,7 +548,7 @@ export default function BudgetPage() {
               <button
                 type="submit"
                 disabled={submitting || !categoryId}
-                className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
+                className="w-full py-3 bg-purple-500 hover:bg-purple-600 disabled:bg-purple-500/50 text-white font-semibold rounded-xl transition flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {submitting ? 'Сохранение...' : 'Запланировать'}
