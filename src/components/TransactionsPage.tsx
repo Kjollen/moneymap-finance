@@ -77,12 +77,23 @@ export default function TransactionsPage() {
     if (!user) return;
     setLoading(true);
     try {
-      const [transactionsRes, cardsRes, creditsRes, categoriesRes] = await Promise.all([
-        pb.collection('transactions').getFullList({
+      // Загружаем транзакции — сначала пробуем с expand, если не получится — без него
+      let transactionsRes: any[];
+      try {
+        transactionsRes = await pb.collection('transactions').getFullList({
           filter: `userId = "${user.id}"`,
           sort: '-date',
           expand: 'categoryId',
-        }),
+        });
+      } catch (err) {
+        // Если expand не работает (нет поля или relation), загружаем без него
+        transactionsRes = await pb.collection('transactions').getFullList({
+          filter: `userId = "${user.id}"`,
+          sort: '-date',
+        });
+      }
+      
+      const [cardsRes, creditsRes, categoriesRes] = await Promise.all([
         pb.collection('cards').getFullList({ filter: `userId = "${user.id}"` }),
         pb.collection('credits').getFullList({ filter: `userId = "${user.id}"` }),
         pb.collection('categories').getFullList({}),

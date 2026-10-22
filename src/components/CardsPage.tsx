@@ -81,11 +81,11 @@ export default function CardsPage() {
     setEditingCard(card);
     setName(card.name);
     setType(card.type);
-    setBalance(card.balance.toString());
-    setCreditlimit(card.creditlimit.toString());
-    setCurrentdebit(card.currentdebit.toString());
-    setLastFourdigits(card.lastFourdigits);
-    setColor(card.color);
+    setBalance(card.balance?.toString() || '0');
+    setCreditlimit(card.creditlimit?.toString() || '0');
+    setCurrentdebit(card.currentdebit?.toString() || '0');
+    setLastFourdigits(card.lastFourdigits || '');
+    setColor(card.color || '#1e293b');
     setShowAdd(true);
   };
 
