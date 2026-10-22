@@ -10,6 +10,7 @@ interface BudgetPlan {
   type: 'income' | 'expense';
   dayOfMonth: number;
   recurring: boolean;
+  month: string;
   userId: string;
 }
 
@@ -83,7 +84,7 @@ export default function BudgetPage() {
     try {
       const [plansRes, creditsRes, budgetsRes, categoriesRes, transactionsRes] = await Promise.all([
         pb.collection('budget_plans').getFullList({
-          filter: `userId = "${user.id}"`,
+          filter: `userId = "${user.id}" && month = "${selectedMonth}"`,
         }),
         pb.collection('credits').getFullList({
           filter: `userId = "${user.id}"`,
@@ -121,6 +122,7 @@ export default function BudgetPage() {
         type: planType,
         dayOfMonth: parseInt(planDay),
         recurring: true,
+        month: selectedMonth,
         userId: user.id,
       });
       setBudgetPlans([...budgetPlans, record as any]);
@@ -215,11 +217,13 @@ export default function BudgetPage() {
   const totalPlannedExpense = expensePlans.reduce((sum, p) => sum + p.amount, 0);
   const totalCreditPayments = credits.reduce((sum, c) => sum + (c.monthlyPayment || 0), 0);
   const totalMandatoryExpense = totalPlannedExpense + totalCreditPayments;
-  const freeMoney = totalIncome - totalMandatoryExpense;
 
   const expenseCategories = categories.filter(c => c.type === 'expense');
   const totalBudget = budgets.reduce((sum, b) => sum + b.amount, 0);
   const totalSpent = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+  
+  // Свободные деньги = Доходы - Обязательные платежи - Бюджет по категориям
+  const freeMoney = totalIncome - totalMandatoryExpense - totalBudget;
 
   if (loading) {
     return (
@@ -333,6 +337,20 @@ export default function BudgetPage() {
           <p className={`text-2xl font-bold ${freeMoney >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
             {formatMoney(freeMoney)}
           </p>
+          <div className={`text-xs mt-2 space-y-1 ${freeMoney >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+            <div className="flex justify-between">
+              <span>Доходы:</span>
+              <span className="font-medium">{formatMoney(totalIncome)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Обязательные платежи:</span>
+              <span className="font-medium">-{formatMoney(totalMandatoryExpense)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Бюджет по категориям:</span>
+              <span className="font-medium">-{formatMoney(totalBudget)}</span>
+            </div>
+          </div>
           <p className={`text-xs mt-2 ${freeMoney >= 0 ? 'text-blue-500' : 'text-red-500'}`}>
             {freeMoney >= 0
               ? 'Можно распределить по категориям'
